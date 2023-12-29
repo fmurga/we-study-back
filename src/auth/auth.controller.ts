@@ -18,7 +18,9 @@ import { CreateUserDto, LoginUserDto } from './dto';
 import { UserRoleGuard } from './guards/user-role.guard';
 import { ValidRoles } from './interfaces';
 import { User } from './entities/user.entity';
+import { ApiTags } from '@nestjs/swagger';
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -33,10 +35,15 @@ export class AuthController {
     return this.authService.login(loginUserDto);
   }
 
-  @Get('check-status')
+  @Get('renew-token')
   @Auth()
   checkAuthStatus(@GetUser() user: User) {
     return this.authService.checkAuthStatus(user);
+  }
+
+  @Post('check-token')
+  verifyTokenExpiration(@Body('token') token: string) {
+    return this.authService.verifyTokenExpiration(token);
   }
 
   @Get('private')

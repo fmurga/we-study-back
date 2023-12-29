@@ -1,5 +1,5 @@
 import { Tag } from 'src/tags/entities/tag.entity';
-import { PostImage } from './post-image.entity';
+// import { PostImage } from './post-image.entity';
 import {
   BeforeInsert,
   BeforeUpdate,
@@ -8,7 +8,6 @@ import {
   JoinTable,
   ManyToMany,
   ManyToOne,
-  OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { User } from 'src/auth/entities/user.entity';
@@ -21,11 +20,17 @@ export class Post {
   @Column({ type: 'text' })
   title?: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', nullable: true })
   slug?: string;
 
   @Column({ type: 'text' })
   description?: string;
+
+  @Column({ type: 'text', nullable: true })
+  image?: string;
+
+  @Column({ type: 'text', nullable: true })
+  file?: string;
 
   @ManyToOne(() => User, (user) => user.posts, { eager: true })
   user: User;
@@ -33,30 +38,4 @@ export class Post {
   @ManyToMany(() => Tag, (tags: Tag) => tags.posts)
   @JoinTable()
   tags?: Tag[];
-
-  @OneToMany(() => PostImage, (postImage) => postImage.post, {
-    cascade: true,
-    eager: true,
-  })
-  images?: PostImage[];
-
-  @BeforeInsert()
-  checkSlugInsert() {
-    if (!this.slug) {
-      this.slug = this.title;
-    }
-
-    this.slug = this.slug
-      .toLowerCase()
-      .replaceAll(' ', '_')
-      .replaceAll("'", '');
-  }
-
-  @BeforeUpdate()
-  checkSlugUpdate() {
-    this.slug = this.slug
-      .toLowerCase()
-      .replaceAll(' ', '_')
-      .replaceAll("'", '');
-  }
 }

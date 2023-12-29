@@ -1,8 +1,8 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { randomUUID } from 'crypto';
 import { Lesson } from 'src/lessons/entities/lesson.entity';
 import { Post } from 'src/posts/entities/post.entity';
 import {
+  BeforeInsert,
+  BeforeUpdate,
   Column,
   Entity,
   JoinTable,
@@ -12,32 +12,53 @@ import {
 
 @Entity('tags')
 export class Tag {
-  @ApiProperty({ example: randomUUID() })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ApiProperty({ example: 'AM1' })
   @Column({
     type: 'text',
-    nullable: false,
     unique: true,
   })
-  name: string;
+  title: string;
 
-  @ApiProperty({ example: 'am1' })
   @Column({ type: 'text', unique: true })
   slug: string;
 
-  @ApiProperty({ example: 'active' })
   @Column({
     type: 'text',
     default: 'active',
   })
   status: string;
+
   @ManyToMany(() => Post, (post: Post) => post.tags)
-  @JoinTable()
-  posts: Post[];
+  posts?: Post[];
+
   @ManyToMany(() => Lesson, (leson: Lesson) => leson.tags)
   @JoinTable()
-  lessons: Lesson[];
+  lessons?: Lesson[];
+
+  @BeforeInsert()
+  titleToUpperCase() {
+    this.title = this.title.toUpperCase();
+  }
+
+  @BeforeInsert()
+  checkSlugInsert() {
+    if (!this.slug) {
+      this.slug = this.title;
+    }
+
+    this.slug = this.slug
+      .toLowerCase()
+      .replaceAll(' ', '_')
+      .replaceAll("'", '');
+  }
+
+  @BeforeUpdate()
+  checkSlugUpdate() {
+    this.slug = this.slug
+      .toLowerCase()
+      .replaceAll(' ', '_')
+      .replaceAll("'", '');
+  }
 }

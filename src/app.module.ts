@@ -7,9 +7,12 @@ import { PostsModule } from './posts/posts.module';
 import { MaterialsModule } from './materials/materials.module';
 import { LessonsModule } from './lessons/lessons.module';
 import { CommonModule } from './common/common.module';
-import { FilesModule } from './files/files.module';
 import { AuthModule } from './auth/auth.module';
 import { join } from 'path';
+import { CloudinaryService } from './cloudinary/cloudinary.service';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { MessagesWsModule } from './messages-ws/messages-ws.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot(),
@@ -32,8 +35,10 @@ import { join } from 'path';
     MaterialsModule,
     LessonsModule,
     CommonModule,
-    FilesModule,
     AuthModule,
+    CloudinaryModule,
+    MessagesWsModule,
   ],
+  providers: [CloudinaryService],
 })
 export class AppModule {}

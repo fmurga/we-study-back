@@ -12,7 +12,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Post } from './entities/post.entity';
 import { PaginationDto } from 'src/common/dtos/pagination.dto';
 import { validate as isUUID } from 'uuid';
-import { PostImage } from './entities/post-image.entity';
+import { User } from 'src/auth/entities/user.entity';
 
 @Injectable()
 export class PostsService {
@@ -22,22 +22,27 @@ export class PostsService {
     @InjectRepository(Post)
     private readonly postRepository: Repository<Post>,
 
-    @InjectRepository(Post)
-    private readonly postImageRepository: Repository<PostImage>,
-
     private readonly dataSource: DataSource,
   ) {}
 
-  async create(createPostDto: CreatePostDto) {
+  async create(createPostDto: CreatePostDto, user: User, image?: any) {
     try {
-      const { images = [], ...postDetails } = createPostDto;
+      if (image) {
+        const post = this.postRepository.create({
+          ...createPostDto,
+          image: image.secure_url,
+          user,
+        });
+        await this.postRepository.save(post);
+        return post;
+      }
       const post = this.postRepository.create({
-        ...postDetails,
-        images: images.map((image) =>
-          this.postImageRepository.create({ url: image }),
-        ),
+        ...createPostDto,
+        user,
       });
       await this.postRepository.save(post);
+      await this.postRepository.update(post.id, { slug: post.id });
+      post.slug = post.id;
       return post;
     } catch (error) {
       this.handleDBExceptions(error);
@@ -50,13 +55,10 @@ export class PostsService {
     const posts = await this.postRepository.find({
       take: limit,
       skip: offset,
-      relations: {
-        images: true,
-      },
+      relations: ['tags'],
     });
     return posts.map((post) => ({
       ...post,
-      images: post.images.map((img) => img.url),
     }));
   }
 
@@ -80,18 +82,20 @@ export class PostsService {
   }
 
   async findOnePlain(term: string) {
-    const { images = [], ...rest } = await this.findOne(term);
+    const { ...rest } = await this.findOne(term);
     return {
       ...rest,
-      images: images.map((image) => image.url),
     };
   }
 
-  async update(id: string, updatePostDto: UpdatePostDto) {
-    const { images, ...toUpdate } = updatePostDto;
-
+  async update(id: string, updatePostDto: UpdatePostDto, file?: any) {
+    if (file) {
+      updatePostDto.image = file.secure_url;
+    }
+    const { ...toUpdate } = updatePostDto;
+    console.log('to update', updatePostDto);
     const post = await this.postRepository.preload({ id, ...toUpdate });
-
+    console.log('post updated', post);
     if (!post) throw new NotFoundException(`Post with id: ${id} not found`);
 
     // Create query runner
@@ -100,15 +104,6 @@ export class PostsService {
     await queryRunner.startTransaction();
 
     try {
-      if (images) {
-        await queryRunner.manager.delete(PostImage, { post: { id } });
-
-        post.images = images.map((image) =>
-          this.postImageRepository.create({ url: image }),
-        );
-      }
-
-      // await this.postRepository.save( post );
       await queryRunner.manager.save(post);
 
       await queryRunner.commitTransaction();
@@ -128,7 +123,7 @@ export class PostsService {
   }
 
   async deleteAllPosts() {
-    const query = this.postRepository.createQueryBuilder('post');
+    const query = this.postRepository.createQueryBuilder('posts');
 
     try {
       return await query.delete().where({}).execute();
@@ -141,7 +136,6 @@ export class PostsService {
     if (error.code === '23505') throw new BadRequestException(error.detail);
 
     this.logger.error(error);
-    // console.log(error)
     throw new InternalServerErrorException(
       'Unexpected error, check server logs',
     );

@@ -1,21 +1,12 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
-import { Post } from 'src/posts/entities/post.entity';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 
 export class CreateTagDto {
   @IsString()
-  @MinLength(2)
-  name: string;
-
+  title: string;
+  @IsOptional()
   @IsString()
-  @MinLength(2)
-  @IsOptional()
   slug?: string;
-
-  @IsIn(['active', 'down'])
   @IsOptional()
+  @IsIn(['active', 'down'])
   status?: string;
-
-  @ApiProperty({ example: [{ id: 1 }, { id: 2 }] })
-  readonly posts: Post[];
 }

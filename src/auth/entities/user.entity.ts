@@ -37,6 +37,14 @@ export class User {
   })
   isActive: boolean;
 
+  @Column({
+    type: 'text',
+    nullable: true,
+    default:
+      'https://res.cloudinary.com/dr56kvlbz/image/upload/v1703346802/whvhz44bxexz0tfrjedq.png',
+  })
+  image?: string;
+
   @Column('text', {
     array: true,
     default: ['user'],

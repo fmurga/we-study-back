@@ -2,7 +2,9 @@ import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/commo
 import { FavouritesService } from './favourites.service';
 import { CreateFavouriteDto } from './dto/create-favourite.dto';
 import { UpdateFavouriteDto } from './dto/update-favourite.dto';
+import { ApiTags } from '@nestjs/swagger';
 
+@ApiTags('favourites')
 @Controller('favourites')
 export class FavouritesController {
   constructor(private readonly favouritesService: FavouritesService) {}

@@ -12,12 +12,12 @@ export class CreatePostDto {
   @IsOptional()
   @MaxLength(2000)
   description: string;
-  @IsString({ each: true })
-  @IsArray()
   @IsOptional()
-  tags?: Tag[];
-  @IsString({ each: true })
-  @IsArray()
+  tags?: any;
+  @IsString()
   @IsOptional()
-  images?: string[];
+  image: string;
+  @IsString()
+  @IsOptional()
+  file: string;
 }
