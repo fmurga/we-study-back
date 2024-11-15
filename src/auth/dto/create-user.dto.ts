@@ -32,4 +32,8 @@ export class CreateUserDto {
   @IsString()
   @IsOptional()
   image: string;
+
+  @IsString()
+  @IsOptional()
+  bio: string;
 }

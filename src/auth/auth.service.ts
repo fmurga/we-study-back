@@ -17,6 +17,18 @@ import { User } from './entities/user.entity';
 import { isUUID } from 'class-validator';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ConfigService } from '@nestjs/config';
+import { Post } from 'src/posts/entities/post.entity';
+export class UserDto {
+  id?: string;
+  email?: string;
+  fullName?: string;
+  username?: string;
+  isActive?: boolean;
+  image?: string;
+  roles?: string[];
+  posts?: { id: string; }[];
+  password?: string
+}
 
 @Injectable()
 export class AuthService {
@@ -30,9 +42,8 @@ export class AuthService {
 
     private configService: ConfigService,
 
-    @InjectRepository(User)
     private readonly dataSource: DataSource,
-  ) {}
+  ) { }
 
   async create(createUserDto: CreateUserDto) {
     try {
@@ -81,36 +92,42 @@ export class AuthService {
     try {
       const secretKey = this.configService.get('JWT_SECRET_KEY');
       const decodedToken = jwt.verify(token, secretKey); // Replace 'your_secret_key_here' with your actual secret key
-      return { ok: true };
+      return decodedToken;
     } catch (error) {
       throw new UnauthorizedException(`Invalid token ${error.message}`);
     }
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
-    const { ...toUpdate } = updateUserDto;
+  async updateUser(
+    id: string,
+    updateUserDto: UpdateUserDto,
+    decodedToken: any,
+    file?: any
+  ): Promise<UserDto> {
+    const user = await this.findOne(id);
 
-    const post = await this.userRepository.preload({ id, ...toUpdate });
-
-    if (!post) throw new NotFoundException(`Post with id: ${id} not found`);
-
-    // Create query runner
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      await queryRunner.manager.save(post);
-
-      await queryRunner.commitTransaction();
-      await queryRunner.release();
-
-      return this.findOnePlain(id);
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      await queryRunner.release();
-      this.handleDBExceptions(error);
+    if (user.id !== decodedToken.id) {
+      throw new UnauthorizedException('You are not authorized to update this user');
     }
+
+    if (file) {
+      updateUserDto.image = file.secure_url
+    } else {
+      updateUserDto.image = decodedToken.image
+    }
+
+
+    Object.assign(user, updateUserDto);
+
+    await this.userRepository.save(user);
+
+    return this.findOne(id);
+  }
+
+
+  async findAllUsernames(): Promise<string[]> {
+    const users = await this.userRepository.find({ select: ['username'] });
+    return users.map(user => user.username);
   }
 
   async findOne(term: string) {
@@ -126,9 +143,21 @@ export class AuthService {
         .getOne();
     }
 
+
     if (!user) throw new NotFoundException(`user with ${term} not found`);
 
-    return user;
+    const posts = await this.dataSource.getRepository(Post)
+      .createQueryBuilder('post')
+      .where('post.user.id = :userId', { userId: user.id })
+      .getMany();
+
+
+    return {
+      ...user,
+      posts: posts.map((post) => ({
+        id: post.id,
+      })),
+    };
   }
 
   async findOnePlain(term: string) {
@@ -137,6 +166,7 @@ export class AuthService {
       ...rest,
     };
   }
+
 
   async login(loginUserDto: LoginUserDto) {
     const { password, email } = loginUserDto;

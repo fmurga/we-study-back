@@ -41,7 +41,7 @@ export class User {
     type: 'text',
     nullable: true,
     default:
-      'https://res.cloudinary.com/dr56kvlbz/image/upload/v1703346802/whvhz44bxexz0tfrjedq.png',
+      'https://res.cloudinary.com/dr56kvlbz/image/upload/v1731686000/c0xmffb9ostdp8ahkdiy.jpg',
   })
   image?: string;
 

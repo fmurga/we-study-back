@@ -41,4 +41,4 @@ import { MessagesWsModule } from './messages-ws/messages-ws.module';
   ],
   providers: [CloudinaryService],
 })
-export class AppModule {}
+export class AppModule { }
