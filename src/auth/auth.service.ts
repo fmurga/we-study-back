@@ -167,6 +167,48 @@ export class AuthService {
     };
   }
 
+  async validateGoogleUser(profile: any): Promise<any> {
+    const { googleId, fullName, email, image } = profile;
+
+    let user = await this.userRepository.findOne({ where: { email } });
+
+    if (!user) {
+      user = this.userRepository.create({
+        email,
+        fullName,
+        image,
+        googleId,
+        isActive: true,
+        password: null,
+      });
+      await this.userRepository.save(user);
+    }
+
+    const token = this.getJwtToken({
+      id: user.id,
+      username: user.username,
+      fullName: user.fullName,
+      email: user.email,
+      image: user.image,
+    });
+
+    return {
+      ...user,
+      token,
+    };
+  }
+
+  async googleLogin(req) {
+    if (!req.user) {
+      throw new UnauthorizedException('No user from Google');
+    }
+
+    // The user object is already populated in the validate method of the strategy
+    return {
+      message: 'User information from Google',
+      user: req.user,
+    };
+  }
 
   async login(loginUserDto: LoginUserDto) {
     const { password, email } = loginUserDto;

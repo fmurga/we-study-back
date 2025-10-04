@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Put,
+  Redirect,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { IncomingHttpHeaders } from 'http';
@@ -95,22 +96,17 @@ export class AuthController {
   }
 
 
-  @Get('private2')
-  @RoleProtected(ValidRoles.superUser, ValidRoles.admin)
-  @UseGuards(AuthGuard(), UserRoleGuard)
-  privateRoute2(@GetUser() user: User) {
-    return {
-      ok: true,
-      user,
-    };
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  async googleAuth(@Req() req) {
+    // Initiates the Google OAuth2 login flow
   }
 
-  @Get('private3')
-  @Auth(ValidRoles.admin)
-  privateRoute3(@GetUser() user: User) {
-    return {
-      ok: true,
-      user,
-    };
+  @Get('google/redirect')
+  @UseGuards(AuthGuard('google'))
+  @Redirect('http://localhost:3000') // Redirect to your frontend after login
+  async googleAuthRedirect(@Req() req) {
+    // Handles the Google OAuth2 callback
+    return this.authService.googleLogin(req);
   }
 }

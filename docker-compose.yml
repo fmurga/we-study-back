@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: we-study-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DATABASE:-we_study}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - we-study-network
+
+  typesense:
+    image: typesense/typesense:0.25.1
+    container_name: we-study-typesense
+    ports:
+      - "8108:8108"
+    environment:
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-xyz}
+      TYPESENSE_DATA_DIR: /data
+    volumes:
+      - typesense_data:/data
+    restart: unless-stopped
+    networks:
+      - we-study-network
+
+volumes:
+  postgres_data:
+  typesense_data:
+
+networks:
+  we-study-network:
+    driver: bridge
