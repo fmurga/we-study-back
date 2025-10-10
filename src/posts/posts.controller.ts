@@ -33,7 +33,7 @@ export class PostsController {
   constructor(
     private readonly postsService: PostsService,
     private readonly cloudinaryService: CloudinaryService,
-  ) {}
+  ) { }
 
   @Post()
   @Auth(ValidRoles.user, ValidRoles.admin)
@@ -70,6 +70,15 @@ export class PostsController {
   @Get()
   findAll(@Query() paginationDto: PaginationDto) {
     return this.postsService.findAll(paginationDto);
+  }
+
+  @Get('lesson/:lessonId')
+  @ApiResponse({ status: 200, description: 'Return posts by lesson' })
+  findByLesson(
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Query() paginationDto: PaginationDto,
+  ) {
+    return this.postsService.findByLesson(lessonId, paginationDto);
   }
 
   @Get(':term')

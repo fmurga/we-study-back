@@ -23,26 +23,32 @@ export class PostsService {
     private readonly postRepository: Repository<Post>,
 
     private readonly dataSource: DataSource,
-  ) {}
+  ) { }
 
-  async create(createPostDto: CreatePostDto, user: User, image?: any) {
+  async create(createPostDto: CreatePostDto, user: User, image?: any): Promise<Post> {
     try {
-      if (image) {
-        const post = this.postRepository.create({
-          ...createPostDto,
-          image: image.secure_url,
-          user,
-        });
-        await this.postRepository.save(post);
-        return post;
-      }
-      const post = this.postRepository.create({
-        ...createPostDto,
+      const { lessonId, ...postData } = createPostDto;
+
+      const postPayload: any = {
+        ...postData,
         user,
-      });
+      };
+
+      if (image) {
+        postPayload.image = image.secure_url;
+      }
+
+      if (lessonId) {
+        postPayload.lesson = { id: lessonId };
+      }
+
+      const post = this.postRepository.create(postPayload) as unknown as Post;
       await this.postRepository.save(post);
+
+      // Update slug to match id
       await this.postRepository.update(post.id, { slug: post.id });
       post.slug = post.id;
+
       return post;
     } catch (error) {
       this.handleDBExceptions(error);
@@ -57,6 +63,22 @@ export class PostsService {
       skip: offset,
       relations: ['tags'],
     });
+    return posts.map((post) => ({
+      ...post,
+    }));
+  }
+
+  async findByLesson(lessonId: string, paginationDto: PaginationDto) {
+    const { limit = 10, offset = 0 } = paginationDto;
+
+    const posts = await this.postRepository.find({
+      where: { lesson: { id: lessonId } },
+      take: limit,
+      skip: offset,
+      relations: ['tags', 'user'],
+      order: { createdAt: 'DESC' },
+    });
+
     return posts.map((post) => ({
       ...post,
     }));
