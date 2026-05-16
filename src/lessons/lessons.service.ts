@@ -5,43 +5,38 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { validate as isUUID } from 'uuid';
+import { isUUID } from 'class-validator';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
-import { Lesson } from './entities/lesson.entity';
+import { PrismaService } from '../prisma/prisma.service';
+import { TypesenseService } from '../typesense/typesense.service';
 import { PaginationDto } from '../common/dtos/pagination.dto';
-import { Tag } from '../tags/entities/tag.entity';
 
 @Injectable()
 export class LessonsService {
   private readonly logger = new Logger('LessonsService');
 
   constructor(
-    @InjectRepository(Lesson)
-    private readonly lessonRepository: Repository<Lesson>,
-    @InjectRepository(Tag)
-    private readonly tagRepository: Repository<Tag>,
-    private readonly dataSource: DataSource,
-  ) { }
+    private readonly prisma: PrismaService,
+    private readonly typesense: TypesenseService,
+  ) {}
 
   async create(createLessonDto: CreateLessonDto, file?: any) {
     try {
       const { tags = [], ...lessonDetails } = createLessonDto;
 
-      if (file) {
-        lessonDetails.image = file.secure_url;
-      }
+      if (file) lessonDetails.image = file.secure_url;
 
-      const lesson = this.lessonRepository.create(lessonDetails);
+      const lesson = await this.prisma.lesson.create({
+        data: {
+          ...lessonDetails,
+          tags: tags.length > 0 ? { connect: tags.map((id: string) => ({ id })) } : undefined,
+        },
+        include: { tags: true, posts: true, notes: true },
+      });
 
-      if (tags.length > 0) {
-        lesson.tags = await this.tagRepository.findByIds(tags);
-      }
-
-      await this.lessonRepository.save(lesson);
-      return this.findOnePlain(lesson.id);
+      await this.typesense.indexLesson(lesson);
+      return { ...lesson, postsCount: lesson.posts.length, notesCount: lesson.notes.length };
     } catch (error) {
       this.handleDBExceptions(error);
     }
@@ -50,36 +45,29 @@ export class LessonsService {
   async findAll(paginationDto: PaginationDto) {
     const { limit = 10, offset = 0 } = paginationDto;
 
-    const lessons = await this.lessonRepository.find({
+    const lessons = await this.prisma.lesson.findMany({
       take: limit,
       skip: offset,
-      relations: ['tags', 'posts'],
-      order: { createdAt: 'DESC' },
+      include: { tags: true, posts: true },
+      orderBy: { createdAt: 'desc' },
     });
 
-    return lessons.map((lesson) => ({
-      ...lesson,
-      postsCount: lesson.posts?.length || 0,
-    }));
+    return lessons.map((lesson) => ({ ...lesson, postsCount: lesson.posts.length }));
   }
 
   async findOne(term: string) {
-    let lesson: Lesson;
+    let lesson: any;
+
     if (isUUID(term)) {
-      lesson = await this.lessonRepository.findOne({
+      lesson = await this.prisma.lesson.findUnique({
         where: { id: term },
-        relations: ['tags', 'posts', 'notes'],
+        include: { tags: true, posts: true, notes: true },
       });
     } else {
-      const queryBuilder = this.lessonRepository.createQueryBuilder('lesson');
-      lesson = await queryBuilder
-        .leftJoinAndSelect('lesson.tags', 'tags')
-        .leftJoinAndSelect('lesson.posts', 'posts')
-        .leftJoinAndSelect('lesson.notes', 'notes')
-        .where('UPPER(lesson.name) = :name', {
-          name: term.toUpperCase(),
-        })
-        .getOne();
+      lesson = await this.prisma.lesson.findFirst({
+        where: { name: { equals: term, mode: 'insensitive' } },
+        include: { tags: true, posts: true, notes: true },
+      });
     }
 
     if (!lesson) throw new NotFoundException(`Lesson with ${term} not found`);
@@ -90,73 +78,58 @@ export class LessonsService {
     const lesson = await this.findOne(term);
     return {
       ...lesson,
-      postsCount: lesson.posts?.length || 0,
-      notesCount: lesson.notes?.length || 0,
+      postsCount: lesson.posts?.length ?? 0,
+      notesCount: lesson.notes?.length ?? 0,
     };
   }
 
   async update(id: string, updateLessonDto: UpdateLessonDto, file?: any) {
     const { tags, ...toUpdate } = updateLessonDto;
 
-    if (file) {
-      toUpdate.image = file.secure_url;
-    }
+    if (file) toUpdate.image = file.secure_url;
 
-    const lesson = await this.lessonRepository.preload({ id, ...toUpdate });
-
-    if (!lesson) throw new NotFoundException(`Lesson with id: ${id} not found`);
-
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    const exists = await this.prisma.lesson.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException(`Lesson with id: ${id} not found`);
 
     try {
-      if (tags) {
-        lesson.tags = await this.tagRepository.findByIds(tags);
-      }
+      const updated = await this.prisma.lesson.update({
+        where: { id },
+        data: {
+          ...toUpdate,
+          tags: tags ? { set: tags.map((tagId: string) => ({ id: tagId })) } : undefined,
+        },
+      });
 
-      await queryRunner.manager.save(lesson);
-      await queryRunner.commitTransaction();
-      await queryRunner.release();
-
+      await this.typesense.indexLesson(updated);
       return this.findOnePlain(id);
     } catch (error) {
-      await queryRunner.rollbackTransaction();
-      await queryRunner.release();
       this.handleDBExceptions(error);
     }
   }
 
   async remove(id: string) {
-    const lesson = await this.findOne(id);
-    await this.lessonRepository.remove(lesson);
+    await this.findOne(id);
+    await this.prisma.lesson.delete({ where: { id } });
+    await this.typesense.deleteLesson(id);
   }
 
   async findByTag(tagId: string, paginationDto: PaginationDto) {
     const { limit = 10, offset = 0 } = paginationDto;
 
-    const lessons = await this.lessonRepository
-      .createQueryBuilder('lesson')
-      .leftJoinAndSelect('lesson.tags', 'tag')
-      .leftJoinAndSelect('lesson.posts', 'posts')
-      .where('tag.id = :tagId', { tagId })
-      .take(limit)
-      .skip(offset)
-      .orderBy('lesson.createdAt', 'DESC')
-      .getMany();
+    const lessons = await this.prisma.lesson.findMany({
+      where: { tags: { some: { id: tagId } } },
+      take: limit,
+      skip: offset,
+      include: { tags: true, posts: true },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    return lessons.map((lesson) => ({
-      ...lesson,
-      postsCount: lesson.posts?.length || 0,
-    }));
+    return lessons.map((lesson) => ({ ...lesson, postsCount: lesson.posts.length }));
   }
 
-  private handleDBExceptions(error: any) {
+  private handleDBExceptions(error: any): never {
     if (error.code === '23505') throw new BadRequestException(error.detail);
-
     this.logger.error(error);
-    throw new InternalServerErrorException(
-      'Unexpected error, check server logs',
-    );
+    throw new InternalServerErrorException('Unexpected error, check server logs');
   }
 }

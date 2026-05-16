@@ -1,28 +1,21 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Comment } from './entities/comment.entity';
+import { Injectable } from '@nestjs/common';
+import { User } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
-import { User } from '../auth/entities/user.entity';
-import { Post } from '../posts/entities/post.entity';
 import { ContentModerationService } from '../common/services/content-moderation.service';
 import { ErrorHandlerFactory, ErrorCode } from '../common/errors/error-handler.factory';
 
 @Injectable()
 export class CommentsService {
   constructor(
-    @InjectRepository(Comment)
-    private readonly commentRepository: Repository<Comment>,
-    @InjectRepository(Post)
-    private readonly postRepository: Repository<Post>,
+    private readonly prisma: PrismaService,
     private readonly contentModerationService: ContentModerationService,
-  ) { }
+  ) {}
 
-  async create(createCommentDto: CreateCommentDto, user: User): Promise<Comment> {
+  async create(createCommentDto: CreateCommentDto, user: User) {
     const { content, postId, parentCommentId } = createCommentDto;
 
-    // Moderate content
     const moderationResult = this.contentModerationService.moderateContent(content);
     if (!moderationResult.isAppropriate) {
       ErrorHandlerFactory.createError({
@@ -32,68 +25,56 @@ export class CommentsService {
       });
     }
 
-    // Verify post exists
-    const post = await this.postRepository.findOne({ where: { id: postId } });
+    const post = await this.prisma.post.findUnique({ where: { id: postId } });
     if (!post) {
-      ErrorHandlerFactory.createError({
-        code: ErrorCode.NOT_FOUND,
-        message: 'Post not found',
-      });
+      ErrorHandlerFactory.createError({ code: ErrorCode.NOT_FOUND, message: 'Post not found' });
     }
 
-    // Verify parent comment exists if provided
-    let parentComment = null;
     if (parentCommentId) {
-      parentComment = await this.commentRepository.findOne({
-        where: { id: parentCommentId },
-      });
+      const parentComment = await this.prisma.comment.findUnique({ where: { id: parentCommentId } });
       if (!parentComment) {
-        ErrorHandlerFactory.createError({
-          code: ErrorCode.NOT_FOUND,
-          message: 'Parent comment not found',
-        });
+        ErrorHandlerFactory.createError({ code: ErrorCode.NOT_FOUND, message: 'Parent comment not found' });
       }
     }
 
-    const comment = this.commentRepository.create({
-      content,
-      user,
-      post,
-      parentComment,
-      parentCommentId,
-    });
-
-    return await this.commentRepository.save(comment);
-  }
-
-  async findByPostId(postId: string): Promise<Comment[]> {
-    return await this.commentRepository.find({
-      where: { post: { id: postId }, parentComment: null },
-      relations: ['user', 'replies', 'replies.user'],
-      order: { createdAt: 'DESC' },
+    return this.prisma.comment.create({
+      data: {
+        content,
+        userId: user.id,
+        postId,
+        parentCommentId: parentCommentId ?? null,
+      },
     });
   }
 
-  async findOne(id: string): Promise<Comment> {
-    const comment = await this.commentRepository.findOne({
+  async findByPostId(postId: string) {
+    return this.prisma.comment.findMany({
+      where: { postId, parentCommentId: null },
+      include: {
+        user: true,
+        replies: { include: { user: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findOne(id: string) {
+    const comment = await this.prisma.comment.findUnique({
       where: { id },
-      relations: ['user', 'post', 'parentComment', 'replies'],
+      include: { user: true, post: true, parentComment: true, replies: true },
     });
 
     if (!comment) {
-      ErrorHandlerFactory.createError({
-        code: ErrorCode.NOT_FOUND,
-        message: 'Comment not found',
-      });
+      ErrorHandlerFactory.createError({ code: ErrorCode.NOT_FOUND, message: 'Comment not found' });
     }
 
     return comment;
   }
 
-  async update(id: string, updateCommentDto: UpdateCommentDto, user: User): Promise<Comment> {
+  async update(id: string, updateCommentDto: UpdateCommentDto, user: User) {
     const comment = await this.findOne(id);
 
-    if (comment.user.id !== user.id) {
+    if (comment.userId !== user.id) {
       ErrorHandlerFactory.createError({
         code: ErrorCode.UNAUTHORIZED,
         message: 'You can only edit your own comments',
@@ -109,31 +90,35 @@ export class CommentsService {
           context: { flaggedWords: moderationResult.flaggedWords },
         });
       }
-      comment.content = updateCommentDto.content;
-      comment.isEdited = true;
     }
 
-    return await this.commentRepository.save(comment);
+    return this.prisma.comment.update({
+      where: { id },
+      data: {
+        content: updateCommentDto.content,
+        isEdited: true,
+      },
+    });
   }
 
-  async remove(id: string, user: User): Promise<void> {
+  async remove(id: string, user: User) {
     const comment = await this.findOne(id);
 
-    if (comment.user.id !== user.id && !user.roles.includes('admin')) {
+    if (comment.userId !== user.id && !user.roles.includes('admin')) {
       ErrorHandlerFactory.createError({
         code: ErrorCode.UNAUTHORIZED,
         message: 'You can only delete your own comments',
       });
     }
 
-    await this.commentRepository.remove(comment);
+    await this.prisma.comment.delete({ where: { id } });
   }
 
-  async getReplies(commentId: string): Promise<Comment[]> {
-    return await this.commentRepository.find({
-      where: { parentComment: { id: commentId } },
-      relations: ['user', 'replies'],
-      order: { createdAt: 'ASC' },
+  async getReplies(commentId: string) {
+    return this.prisma.comment.findMany({
+      where: { parentCommentId: commentId },
+      include: { user: true, replies: true },
+      orderBy: { createdAt: 'asc' },
     });
   }
 }

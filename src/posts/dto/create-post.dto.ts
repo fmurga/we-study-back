@@ -1,5 +1,4 @@
-import { IsArray, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
-import { Tag } from 'src/tags/entities/tag.entity';
+import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreatePostDto {
   @IsString()

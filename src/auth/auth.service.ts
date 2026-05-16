@@ -6,18 +6,16 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-import * as jwt from 'jsonwebtoken';
 import { JwtService } from '@nestjs/jwt';
+import { User } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { TypesenseService } from '../typesense/typesense.service';
 import { JwtPayload } from './interfaces';
 import { CreateUserDto, LoginUserDto } from './dto';
-import { User } from './entities/user.entity';
 import { isUUID } from 'class-validator';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { ConfigService } from '@nestjs/config';
-import { Post } from 'src/posts/entities/post.entity';
+
 export class UserDto {
   id?: string;
   email?: string;
@@ -26,8 +24,8 @@ export class UserDto {
   isActive?: boolean;
   image?: string;
   roles?: string[];
-  posts?: { id: string; }[];
-  password?: string
+  posts?: { id: string }[];
+  password?: string;
 }
 
 @Injectable()
@@ -35,27 +33,23 @@ export class AuthService {
   private readonly logger = new Logger('AuthService');
 
   constructor(
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
-
+    private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-
-    private configService: ConfigService,
-
-    private readonly dataSource: DataSource,
-  ) { }
+    private readonly typesense: TypesenseService,
+  ) {}
 
   async create(createUserDto: CreateUserDto) {
     try {
       const { password, ...userData } = createUserDto;
 
-      const user = this.userRepository.create({
-        ...userData,
-        password: bcrypt.hashSync(password, 10),
+      const user = await this.prisma.user.create({
+        data: {
+          ...userData,
+          password: bcrypt.hashSync(password, 10),
+        },
       });
 
-      await this.userRepository.save(user);
-      delete user.password;
+      await this.typesense.indexUser(user);
 
       return {
         email: user.email,
@@ -71,28 +65,14 @@ export class AuthService {
           image: user.image,
         }),
       };
-      // TODO: Retornar el JWT de acceso
     } catch (error) {
       this.handleDBErrors(error);
     }
   }
 
-  // async verifyToken(token: any): Promise<any> {
-  //   try {
-  //     const secretKey = this.configService.get('JWT_SECRET_KEY'); // Assuming you have set the secret key for jwtService
-  //     const tokenToValidate = token.token;
-  //     const decodedToken = jwt.verify(tokenToValidate, secretKey); // Verify the token
-  //     return decodedToken;
-  //   } catch (error) {
-  //     throw new UnauthorizedException(`Invalid token ${error.message}`);
-  //   }
-  // }
-
   verifyTokenExpiration(token: string) {
     try {
-      const secretKey = this.configService.get('JWT_SECRET_KEY');
-      const decodedToken = jwt.verify(token, secretKey); // Replace 'your_secret_key_here' with your actual secret key
-      return decodedToken;
+      return this.jwtService.verify(token);
     } catch (error) {
       throw new UnauthorizedException(`Invalid token ${error.message}`);
     }
@@ -102,7 +82,7 @@ export class AuthService {
     id: string,
     updateUserDto: UpdateUserDto,
     decodedToken: any,
-    file?: any
+    file?: any,
   ): Promise<UserDto> {
     const user = await this.findOne(id);
 
@@ -111,77 +91,69 @@ export class AuthService {
     }
 
     if (file) {
-      updateUserDto.image = file.secure_url
+      updateUserDto.image = file.secure_url;
     } else {
-      updateUserDto.image = decodedToken.image
+      updateUserDto.image = decodedToken.image;
     }
 
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: updateUserDto,
+    });
 
-    Object.assign(user, updateUserDto);
-
-    await this.userRepository.save(user);
+    await this.typesense.indexUser(updated);
 
     return this.findOne(id);
   }
 
-
   async findAllUsernames(): Promise<string[]> {
-    const users = await this.userRepository.find({ select: ['username'] });
-    return users.map(user => user.username);
+    const users = await this.prisma.user.findMany({ select: { username: true } });
+    return users.map((u) => u.username);
   }
 
   async findOne(term: string) {
-    let user: User;
+    let user: User | null;
+
     if (isUUID(term)) {
-      user = await this.userRepository.findOneBy({ id: term });
+      user = await this.prisma.user.findUnique({ where: { id: term } });
     } else {
-      const queryBuilder = this.userRepository.createQueryBuilder();
-      user = await queryBuilder
-        .where('UPPER(username) =:username', {
-          username: term.toUpperCase(),
-        })
-        .getOne();
+      user = await this.prisma.user.findFirst({
+        where: { username: { equals: term, mode: 'insensitive' } },
+      });
     }
 
+    if (!user) throw new NotFoundException(`User with ${term} not found`);
 
-    if (!user) throw new NotFoundException(`user with ${term} not found`);
+    const posts = await this.prisma.post.findMany({
+      where: { userId: user.id },
+      select: { id: true },
+    });
 
-    const posts = await this.dataSource.getRepository(Post)
-      .createQueryBuilder('post')
-      .where('post.user.id = :userId', { userId: user.id })
-      .getMany();
-
-
-    return {
-      ...user,
-      posts: posts.map((post) => ({
-        id: post.id,
-      })),
-    };
+    return { ...user, posts };
   }
 
   async findOnePlain(term: string) {
-    const { ...rest } = await this.findOne(term);
-    return {
-      ...rest,
-    };
+    return this.findOne(term);
   }
 
   async validateGoogleUser(profile: any): Promise<any> {
     const { googleId, fullName, email, image } = profile;
 
-    let user = await this.userRepository.findOne({ where: { email } });
+    let user = await this.prisma.user.findFirst({ where: { email } });
 
     if (!user) {
-      user = this.userRepository.create({
-        email,
-        fullName,
-        image,
-        googleId,
-        isActive: true,
-        password: null,
+      const baseUsername = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          fullName,
+          image,
+          googleId,
+          isActive: true,
+          password: null,
+          username: `${baseUsername}_${Date.now()}`,
+        },
       });
-      await this.userRepository.save(user);
     }
 
     const token = this.getJwtToken({
@@ -192,43 +164,33 @@ export class AuthService {
       image: user.image,
     });
 
-    return {
-      ...user,
-      token,
-    };
+    return { ...user, token };
   }
 
-  async googleLogin(req) {
+  async googleLogin(req: any) {
     if (!req.user) {
       throw new UnauthorizedException('No user from Google');
     }
-
-    // The user object is already populated in the validate method of the strategy
-    return {
-      message: 'User information from Google',
-      user: req.user,
-    };
+    return { message: 'User information from Google', user: req.user };
   }
 
   async login(loginUserDto: LoginUserDto) {
     const { password, email } = loginUserDto;
 
-    const user = await this.userRepository.findOne({
+    const user = await this.prisma.user.findFirst({
       where: { email },
       select: {
+        id: true,
         username: true,
         fullName: true,
         email: true,
         image: true,
         password: true,
-        id: true,
-      }, //! OJO!
+      },
     });
 
-    if (!user)
-      throw new UnauthorizedException('Credentials are not valid (email)');
-
-    if (!bcrypt.compareSync(password, user.password))
+    if (!user) throw new UnauthorizedException('Credentials are not valid (email)');
+    if (!bcrypt.compareSync(password, user.password!))
       throw new UnauthorizedException('Credentials are not valid (password)');
 
     return {
@@ -260,24 +222,12 @@ export class AuthService {
   }
 
   private getJwtToken(payload: JwtPayload) {
-    const token = this.jwtService.sign(payload);
-    return token;
+    return this.jwtService.sign(payload);
   }
 
   private handleDBErrors(error: any): never {
     if (error.code === '23505') throw new BadRequestException(error.detail);
-
     console.log(error);
-
     throw new InternalServerErrorException('Please check server logs');
-  }
-
-  private handleDBExceptions(error: any) {
-    if (error.code === '23505') throw new BadRequestException(error.detail);
-
-    this.logger.error(error);
-    throw new InternalServerErrorException(
-      'Unexpected error, check server logs',
-    );
   }
 }

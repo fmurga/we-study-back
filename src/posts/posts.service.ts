@@ -5,51 +5,45 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { User } from '@prisma/client';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { Post } from './entities/post.entity';
+import { PrismaService } from '../prisma/prisma.service';
+import { TypesenseService } from '../typesense/typesense.service';
 import { PaginationDto } from 'src/common/dtos/pagination.dto';
-import { validate as isUUID } from 'uuid';
-import { User } from 'src/auth/entities/user.entity';
+import { isUUID } from 'class-validator';
 
 @Injectable()
 export class PostsService {
   private readonly logger = new Logger('PostsService');
 
   constructor(
-    @InjectRepository(Post)
-    private readonly postRepository: Repository<Post>,
+    private readonly prisma: PrismaService,
+    private readonly typesense: TypesenseService,
+  ) {}
 
-    private readonly dataSource: DataSource,
-  ) { }
-
-  async create(createPostDto: CreatePostDto, user: User, image?: any): Promise<Post> {
+  async create(createPostDto: CreatePostDto, user: User, image?: any) {
     try {
-      const { lessonId, ...postData } = createPostDto;
+      const { lessonId, tags, ...postData } = createPostDto as any;
 
-      const postPayload: any = {
+      const data: any = {
         ...postData,
-        user,
+        userId: user.id,
       };
 
-      if (image) {
-        postPayload.image = image.secure_url;
-      }
+      if (image) data.image = image.secure_url;
+      if (lessonId) data.lessonId = lessonId;
 
-      if (lessonId) {
-        postPayload.lesson = { id: lessonId };
-      }
+      const post = await this.prisma.post.create({ data, include: { user: true } });
 
-      const post = this.postRepository.create(postPayload) as unknown as Post;
-      await this.postRepository.save(post);
+      await this.prisma.post.update({
+        where: { id: post.id },
+        data: { slug: post.id },
+      });
 
-      // Update slug to match id
-      await this.postRepository.update(post.id, { slug: post.id });
-      post.slug = post.id;
+      await this.typesense.indexPost(post);
 
-      return post;
+      return { ...post, slug: post.id };
     } catch (error) {
       this.handleDBExceptions(error);
     }
@@ -58,108 +52,85 @@ export class PostsService {
   async findAll(paginationDto: PaginationDto) {
     const { limit = 10, offset = 0 } = paginationDto;
 
-    const posts = await this.postRepository.find({
+    return this.prisma.post.findMany({
       take: limit,
       skip: offset,
-      relations: ['tags'],
+      include: { tags: true },
     });
-    return posts.map((post) => ({
-      ...post,
-    }));
   }
 
   async findByLesson(lessonId: string, paginationDto: PaginationDto) {
     const { limit = 10, offset = 0 } = paginationDto;
 
-    const posts = await this.postRepository.find({
-      where: { lesson: { id: lessonId } },
+    return this.prisma.post.findMany({
+      where: { lessonId },
       take: limit,
       skip: offset,
-      relations: ['tags', 'user'],
-      order: { createdAt: 'DESC' },
+      include: { tags: true, user: true },
+      orderBy: { createdAt: 'desc' },
     });
-
-    return posts.map((post) => ({
-      ...post,
-    }));
   }
 
   async findOne(term: string) {
-    let post: Post;
+    let post: any;
+
     if (isUUID(term)) {
-      post = await this.postRepository.findOneBy({ id: term });
+      post = await this.prisma.post.findUnique({ where: { id: term } });
     } else {
-      const queryBuilder = this.postRepository.createQueryBuilder();
-      post = await queryBuilder
-        .where('UPPER(title) =:title or slug =:slug', {
-          title: term.toUpperCase(),
-          slug: term.toLowerCase(),
-        })
-        .getOne();
+      post = await this.prisma.post.findFirst({
+        where: {
+          OR: [
+            { title: { equals: term, mode: 'insensitive' } },
+            { slug: term.toLowerCase() },
+          ],
+        },
+      });
     }
 
     if (!post) throw new NotFoundException(`Post with ${term} not found`);
-
     return post;
   }
 
   async findOnePlain(term: string) {
-    const { ...rest } = await this.findOne(term);
-    return {
-      ...rest,
-    };
+    return this.findOne(term);
   }
 
   async update(id: string, updatePostDto: UpdatePostDto, file?: any) {
-    if (file) {
-      updatePostDto.image = file.secure_url;
-    }
-    const { ...toUpdate } = updatePostDto;
-    console.log('to update', updatePostDto);
-    const post = await this.postRepository.preload({ id, ...toUpdate });
-    console.log('post updated', post);
-    if (!post) throw new NotFoundException(`Post with id: ${id} not found`);
+    if (file) updatePostDto.image = file.secure_url;
 
-    // Create query runner
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    const exists = await this.prisma.post.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException(`Post with id: ${id} not found`);
 
     try {
-      await queryRunner.manager.save(post);
-
-      await queryRunner.commitTransaction();
-      await queryRunner.release();
-
-      return this.findOnePlain(id);
+      const updated = await this.prisma.post.update({
+        where: { id },
+        data: updatePostDto as any,
+        include: { user: true },
+      });
+      await this.typesense.indexPost(updated);
+      return updated;
     } catch (error) {
-      await queryRunner.rollbackTransaction();
-      await queryRunner.release();
       this.handleDBExceptions(error);
     }
   }
 
   async remove(id: string) {
-    const post = await this.findOne(id);
-    await this.postRepository.remove(post);
+    await this.findOne(id);
+    await this.prisma.post.delete({ where: { id } });
+    await this.typesense.deletePost(id);
   }
 
   async deleteAllPosts() {
-    const query = this.postRepository.createQueryBuilder('posts');
-
     try {
-      return await query.delete().where({}).execute();
+      return await this.prisma.post.deleteMany({});
     } catch (error) {
       this.handleDBExceptions(error);
     }
   }
 
-  private handleDBExceptions(error: any) {
+  private handleDBExceptions(error: any): never {
     if (error.code === '23505') throw new BadRequestException(error.detail);
-
     this.logger.error(error);
-    throw new InternalServerErrorException(
-      'Unexpected error, check server logs',
-    );
+    throw new InternalServerErrorException('Unexpected error, check server logs');
   }
 }

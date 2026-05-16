@@ -11,7 +11,7 @@ import { UserFollowsService } from './user-follows.service';
 import { CreateUserFollowDto } from './dto/create-user-follow.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { GetUser } from '../auth/decorators/get-user.decorator';
-import { User } from '../auth/entities/user.entity';
+import { User } from '@prisma/client';
 import { ResponseBuilder } from '../common/responses/response-builder';
 
 @Controller('user-follows')

@@ -25,7 +25,7 @@ import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { Auth, GetUser } from 'src/auth/decorators';
 import { ApiConsumes, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ValidRoles } from 'src/auth/interfaces';
-import { User } from 'src/auth/entities/user.entity';
+import { User } from '@prisma/client';
 
 @ApiTags('posts')
 @Controller('posts')

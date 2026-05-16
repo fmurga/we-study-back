@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum NoteType {
+  LESSON_NOTE
+  PERSONAL_NOTE
+  SUMMARY
+  HIGHLIGHT
+}
+
+enum EventType {
+  LESSON
+  EXAM
+  ASSIGNMENT
+  STUDY_SESSION
+  MEETING
+  OTHER
+}
+
+enum ReportType {
+  INAPPROPRIATE_CONTENT
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  VIOLENCE
+  MISINFORMATION
+  COPYRIGHT
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum FavouriteType {
+  POST
+  LESSON
+  COMMENT
+}
+
+// ─────────────────────────────────────────────
+// Models
+// ─────────────────────────────────────────────
+
+model User {
+  id       String   @id @default(uuid())
+  email    String   @unique
+  password String?
+  fullName String
+  username String   @unique
+  isActive Boolean  @default(true)
+  image    String?  @default("https://res.cloudinary.com/dr56kvlbz/image/upload/v1731686000/c0xmffb9ostdp8ahkdiy.jpg")
+  roles    String[] @default(["user"])
+  googleId String?
+
+  posts           Post[]       @relation("UserPosts")
+  comments        Comment[]    @relation("UserComments")
+  following       UserFollow[] @relation("Follower")
+  followers       UserFollow[] @relation("Following")
+  calendarEvents  CalendarEvent[]
+  notes           Note[]
+  reports         Report[]     @relation("ReportedBy")
+  reportedContent Report[]     @relation("ReportedUser")
+  resolvedReports Report[]     @relation("ResolvedBy")
+  favourites      Favourite[]
+
+  @@map("users")
+}
+
+model Post {
+  id          String   @id @default(uuid())
+  title       String?
+  slug        String?
+  description String?
+  image       String?
+  file        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId   String
+  user     User    @relation("UserPosts", fields: [userId], references: [id])
+  lessonId String?
+  lesson   Lesson? @relation(fields: [lessonId], references: [id])
+
+  comments   Comment[]
+  reports    Report[]    @relation("PostReports")
+  tags       Tag[]       @relation("PostTags")
+  favourites Favourite[]
+
+  @@map("posts")
+}
+
+model Comment {
+  id             String   @id @default(uuid())
+  content        String
+  isEdited       Boolean  @default(false)
+  isReported     Boolean  @default(false)
+  reportCount    Int      @default(0)
+  parentCommentId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  userId String
+  user   User   @relation("UserComments", fields: [userId], references: [id])
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  parentComment Comment?  @relation("CommentReplies", fields: [parentCommentId], references: [id])
+  replies       Comment[] @relation("CommentReplies")
+  reports       Report[]  @relation("CommentReports")
+  favourites    Favourite[] @relation("CommentFavourites")
+
+  @@map("comments")
+}
+
+model Lesson {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  image       String?
+  videoUrl    String?
+  materials   Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  posts      Post[]
+  notes      Note[]
+  tags       Tag[]       @relation("LessonTags")
+  favourites Favourite[] @relation("LessonFavourites")
+
+  @@map("lessons")
+}
+
+model Tag {
+  id     String @id @default(uuid())
+  title  String @unique
+  slug   String @unique
+  status String @default("active")
+
+  posts   Post[]   @relation("PostTags")
+  lessons Lesson[] @relation("LessonTags")
+
+  @@map("tags")
+}
+
+model Note {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  noteType  NoteType @default(PERSONAL_NOTE)
+  tags      Json?
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId   String
+  user     User    @relation(fields: [userId], references: [id])
+  lessonId String?
+  lesson   Lesson? @relation(fields: [lessonId], references: [id])
+
+  @@map("notes")
+}
+
+model CalendarEvent {
+  id              String    @id @default(uuid())
+  title           String
+  description     String?
+  eventType       EventType @default(OTHER)
+  startDate       DateTime
+  endDate         DateTime
+  location        String?
+  isAllDay        Boolean   @default(false)
+  hasReminder     Boolean   @default(false)
+  reminderMinutes Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("calendar_events")
+}
+
+model UserFollow {
+  id          String   @id @default(uuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("Follower", fields: [followerId], references: [id])
+  following User @relation("Following", fields: [followingId], references: [id])
+
+  @@unique([followerId, followingId])
+  @@map("user_follows")
+}
+
+model Favourite {
+  id        String        @id @default(uuid())
+  type      FavouriteType
+  createdAt DateTime      @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  postId    String?
+  post      Post?    @relation(fields: [postId], references: [id])
+  lessonId  String?
+  lesson    Lesson?  @relation("LessonFavourites", fields: [lessonId], references: [id])
+  commentId String?
+  comment   Comment? @relation("CommentFavourites", fields: [commentId], references: [id])
+
+  @@unique([userId, postId])
+  @@unique([userId, lessonId])
+  @@unique([userId, commentId])
+  @@map("favourites")
+}
+
+model Report {
+  id          String       @id @default(uuid())
+  reportType  ReportType
+  description String?
+  status      ReportStatus @default(PENDING)
+  adminNotes  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime     @default(now())
+
+  reportedById   String
+  reportedBy     User    @relation("ReportedBy", fields: [reportedById], references: [id])
+  reportedUserId String?
+  reportedUser   User?   @relation("ReportedUser", fields: [reportedUserId], references: [id])
+  resolvedById   String?
+  resolvedBy     User?   @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  postId         String?
+  post           Post?   @relation("PostReports", fields: [postId], references: [id])
+  commentId      String?
+  comment        Comment? @relation("CommentReports", fields: [commentId], references: [id])
+
+  @@unique([reportedById, postId])
+  @@unique([reportedById, commentId])
+  @@map("reports")
+}

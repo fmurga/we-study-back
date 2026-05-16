@@ -6,29 +6,26 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { UpdateTagDto } from './dto/update-tag.dto';
-import { DataSource, Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
 import { isUUID } from 'class-validator';
+import { PrismaService } from '../prisma/prisma.service';
 import { PaginationDto } from 'src/common/dtos/pagination.dto';
-import { Tag } from './entities/tag.entity';
 import { CreateTagDto } from './dto/create-tag.dto';
 
 @Injectable()
 export class TagsService {
   private readonly logger = new Logger('TagsService');
 
-  constructor(
-    @InjectRepository(Tag)
-    private readonly tagsRepository: Repository<Tag>,
-
-    private readonly dataSource: DataSource,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(createTagDto: CreateTagDto) {
     try {
-      const tag = this.tagsRepository.create(createTagDto);
-      await this.tagsRepository.save(tag);
-      return tag;
+      const title = createTagDto.title.toUpperCase();
+      const slug = createTagDto.slug ?? title
+        .toLowerCase()
+        .replace(/[\s'"]+/g, '_')
+        .replace(/[^a-z0-9_]/g, '');
+
+      return await this.prisma.tag.create({ data: { ...createTagDto, title, slug } });
     } catch (error) {
       this.handleDBExceptions(error);
     }
@@ -37,89 +34,64 @@ export class TagsService {
   async findAll(paginationDto: PaginationDto) {
     const { limit = 10, offset = 0 } = paginationDto;
 
-    const tags = await this.tagsRepository.find({
+    return this.prisma.tag.findMany({
       take: limit,
       skip: offset,
-      relations: ['posts'],
+      include: { posts: true },
     });
-    return tags.map((tag) => ({
-      ...tag,
-    }));
   }
 
   async findOne(term: string) {
-    let tag: Tag;
+    let tag: any;
+
     if (isUUID(term)) {
-      tag = await this.tagsRepository.findOneBy({ id: term });
+      tag = await this.prisma.tag.findUnique({ where: { id: term } });
     } else {
-      const queryBuilder = this.tagsRepository.createQueryBuilder();
-      tag = await queryBuilder
-        .where('UPPER(title) =:title or slug =:slug', {
-          title: term.toUpperCase(),
-          slug: term.toLowerCase(),
-        })
-        .getOne();
+      tag = await this.prisma.tag.findFirst({
+        where: {
+          OR: [
+            { title: { equals: term, mode: 'insensitive' } },
+            { slug: term.toLowerCase() },
+          ],
+        },
+      });
     }
 
     if (!tag) throw new NotFoundException(`Tag with ${term} not found`);
-
     return tag;
   }
 
   async findOnePlain(term: string) {
-    const { ...rest } = await this.findOne(term);
-    return {
-      ...rest,
-    };
+    return this.findOne(term);
   }
 
   async update(id: string, updateTagDto: UpdateTagDto) {
-    const { ...toUpdate } = updateTagDto;
-
-    const tag = await this.tagsRepository.preload({ id, ...toUpdate });
-
-    if (!tag) throw new NotFoundException(`Tag with id: ${id} not found`);
-
-    // Create query runner
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    const exists = await this.prisma.tag.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException(`Tag with id: ${id} not found`);
 
     try {
-      await queryRunner.manager.save(tag);
-
-      await queryRunner.commitTransaction();
-      await queryRunner.release();
-
-      return this.findOnePlain(id);
+      return await this.prisma.tag.update({ where: { id }, data: updateTagDto });
     } catch (error) {
-      await queryRunner.rollbackTransaction();
-      await queryRunner.release();
       this.handleDBExceptions(error);
     }
   }
 
   async remove(id: string) {
-    const tag = await this.findOne(id);
-    await this.tagsRepository.remove(tag);
+    await this.findOne(id);
+    await this.prisma.tag.delete({ where: { id } });
   }
 
   async deleteAllTags() {
-    const query = this.tagsRepository.createQueryBuilder('tags');
-
     try {
-      return await query.delete().where({}).execute();
+      return await this.prisma.tag.deleteMany({});
     } catch (error) {
       this.handleDBExceptions(error);
     }
   }
 
-  private handleDBExceptions(error: any) {
+  private handleDBExceptions(error: any): never {
     if (error.code === '23505') throw new BadRequestException(error.detail);
-
     this.logger.error(error);
-    throw new InternalServerErrorException(
-      'Unexpected error, check server logs',
-    );
+    throw new InternalServerErrorException('Unexpected error, check server logs');
   }
 }

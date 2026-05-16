@@ -7,7 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { User } from '../entities/user.entity';
+import { User } from '@prisma/client';
 import { META_ROLES } from '../decorators/role-protected.decorator';
 
 @Injectable()
