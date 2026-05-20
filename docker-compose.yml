@@ -22,7 +22,7 @@ services:
       start_period: 10s
 
   typesense:
-    image: typesense/typesense:27
+    image: typesense/typesense:27.0
     container_name: we-study-typesense
     ports:
       - "8108:8108"
