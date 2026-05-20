@@ -1,26 +1,25 @@
 import { Injectable } from '@nestjs/common';
-import { CreateFavouriteDto } from './dto/create-favourite.dto';
-import { UpdateFavouriteDto } from './dto/update-favourite.dto';
+import { User } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class FavouritesService {
-  create(createFavouriteDto: CreateFavouriteDto) {
-    return 'This action adds a new favourite';
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
-    return `This action returns all favourites`;
-  }
+  async togglePost(postId: string, user: User): Promise<{ liked: boolean; count: number }> {
+    const existing = await this.prisma.favourite.findUnique({
+      where: { userId_postId: { userId: user.id, postId } },
+    });
 
-  findOne(id: number) {
-    return `This action returns a #${id} favourite`;
-  }
+    if (existing) {
+      await this.prisma.favourite.delete({ where: { id: existing.id } });
+    } else {
+      await this.prisma.favourite.create({
+        data: { userId: user.id, postId, type: 'POST' },
+      });
+    }
 
-  update(id: number, updateFavouriteDto: UpdateFavouriteDto) {
-    return `This action updates a #${id} favourite`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} favourite`;
+    const count = await this.prisma.favourite.count({ where: { postId } });
+    return { liked: !existing, count };
   }
 }

@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Post, Param, ParseUUIDPipe } from '@nestjs/common';
 import { FavouritesService } from './favourites.service';
-import { CreateFavouriteDto } from './dto/create-favourite.dto';
-import { UpdateFavouriteDto } from './dto/update-favourite.dto';
+import { Auth, GetUser } from 'src/auth/decorators';
+import { ValidRoles } from 'src/auth/interfaces';
+import { User } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 
 @ApiTags('favourites')
@@ -9,28 +10,12 @@ import { ApiTags } from '@nestjs/swagger';
 export class FavouritesController {
   constructor(private readonly favouritesService: FavouritesService) {}
 
-  @Post()
-  create(@Body() createFavouriteDto: CreateFavouriteDto) {
-    return this.favouritesService.create(createFavouriteDto);
-  }
-
-  @Get()
-  findAll() {
-    return this.favouritesService.findAll();
-  }
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.favouritesService.findOne(+id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateFavouriteDto: UpdateFavouriteDto) {
-    return this.favouritesService.update(+id, updateFavouriteDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.favouritesService.remove(+id);
+  @Post('post/:postId')
+  @Auth(ValidRoles.user, ValidRoles.admin)
+  togglePost(
+    @Param('postId', ParseUUIDPipe) postId: string,
+    @GetUser() user: User,
+  ) {
+    return this.favouritesService.togglePost(postId, user);
   }
 }

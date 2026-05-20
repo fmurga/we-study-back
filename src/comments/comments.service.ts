@@ -6,6 +6,13 @@ import { UpdateCommentDto } from './dto/update-comment.dto';
 import { ContentModerationService } from '../common/services/content-moderation.service';
 import { ErrorHandlerFactory, ErrorCode } from '../common/errors/error-handler.factory';
 
+const userPublicSelect = {
+  id: true,
+  fullName: true,
+  username: true,
+  image: true,
+} as const;
+
 @Injectable()
 export class CommentsService {
   constructor(
@@ -51,8 +58,8 @@ export class CommentsService {
     return this.prisma.comment.findMany({
       where: { postId, parentCommentId: null },
       include: {
-        user: true,
-        replies: { include: { user: true } },
+        user: { select: userPublicSelect },
+        replies: { include: { user: { select: userPublicSelect } } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -61,7 +68,7 @@ export class CommentsService {
   async findOne(id: string) {
     const comment = await this.prisma.comment.findUnique({
       where: { id },
-      include: { user: true, post: true, parentComment: true, replies: true },
+      include: { user: { select: userPublicSelect }, post: true, parentComment: true, replies: true },
     });
 
     if (!comment) {
@@ -117,7 +124,7 @@ export class CommentsService {
   async getReplies(commentId: string) {
     return this.prisma.comment.findMany({
       where: { parentCommentId: commentId },
-      include: { user: true, replies: true },
+      include: { user: { select: userPublicSelect }, replies: true },
       orderBy: { createdAt: 'asc' },
     });
   }

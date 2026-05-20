@@ -64,7 +64,7 @@ export class PostsService {
     return this.prisma.post.findMany({
       take: limit,
       skip: offset,
-      include: { tags: true, user: { select: userPublicSelect } },
+      include: { tags: true, user: { select: userPublicSelect }, _count: { select: { comments: true, favourites: true } } },
     });
   }
 
@@ -75,7 +75,7 @@ export class PostsService {
       where: { lessonId },
       take: limit,
       skip: offset,
-      include: { tags: true, user: { select: userPublicSelect } },
+      include: { tags: true, user: { select: userPublicSelect }, _count: { select: { comments: true, favourites: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -83,8 +83,10 @@ export class PostsService {
   async findOne(term: string) {
     let post: any;
 
+    const include = { tags: true, user: { select: userPublicSelect }, _count: { select: { comments: true, favourites: true } } };
+
     if (isUUID(term)) {
-      post = await this.prisma.post.findUnique({ where: { id: term } });
+      post = await this.prisma.post.findUnique({ where: { id: term }, include });
     } else {
       post = await this.prisma.post.findFirst({
         where: {
@@ -93,6 +95,7 @@ export class PostsService {
             { slug: term.toLowerCase() },
           ],
         },
+        include,
       });
     }
 
