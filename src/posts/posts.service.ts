@@ -55,7 +55,7 @@ export class PostsService {
     return this.prisma.post.findMany({
       take: limit,
       skip: offset,
-      include: { tags: true },
+      include: { tags: true, user: true },
     });
   }
 
