@@ -13,6 +13,15 @@ import { TypesenseService } from '../typesense/typesense.service';
 import { PaginationDto } from 'src/common/dtos/pagination.dto';
 import { isUUID } from 'class-validator';
 
+const userPublicSelect = {
+  id: true,
+  fullName: true,
+  username: true,
+  image: true,
+  roles: true,
+  isActive: true,
+} as const;
+
 @Injectable()
 export class PostsService {
   private readonly logger = new Logger('PostsService');
@@ -34,7 +43,7 @@ export class PostsService {
       if (image) data.image = image.secure_url;
       if (lessonId) data.lessonId = lessonId;
 
-      const post = await this.prisma.post.create({ data, include: { user: true } });
+      const post = await this.prisma.post.create({ data, include: { user: { select: userPublicSelect } } });
 
       await this.prisma.post.update({
         where: { id: post.id },
@@ -55,7 +64,7 @@ export class PostsService {
     return this.prisma.post.findMany({
       take: limit,
       skip: offset,
-      include: { tags: true, user: true },
+      include: { tags: true, user: { select: userPublicSelect } },
     });
   }
 
@@ -66,7 +75,7 @@ export class PostsService {
       where: { lessonId },
       take: limit,
       skip: offset,
-      include: { tags: true, user: true },
+      include: { tags: true, user: { select: userPublicSelect } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -105,7 +114,7 @@ export class PostsService {
       const updated = await this.prisma.post.update({
         where: { id },
         data: updatePostDto as any,
-        include: { user: true },
+        include: { user: { select: userPublicSelect } },
       });
       await this.typesense.indexPost(updated);
       return updated;
