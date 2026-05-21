@@ -72,6 +72,15 @@ export class PostsController {
     return this.postsService.findAll(paginationDto);
   }
 
+  @Get('user/:userId')
+  @ApiResponse({ status: 200, description: 'Return posts by user' })
+  findByUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Query() paginationDto: PaginationDto,
+  ) {
+    return this.postsService.findByUser(userId, paginationDto);
+  }
+
   @Get('lesson/:lessonId')
   @ApiResponse({ status: 200, description: 'Return posts by lesson' })
   findByLesson(

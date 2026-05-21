@@ -1,4 +1,4 @@
-import { Controller, Post, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, ParseUUIDPipe } from '@nestjs/common';
 import { FavouritesService } from './favourites.service';
 import { Auth, GetUser } from 'src/auth/decorators';
 import { ValidRoles } from 'src/auth/interfaces';
@@ -9,6 +9,12 @@ import { ApiTags } from '@nestjs/swagger';
 @Controller('favourites')
 export class FavouritesController {
   constructor(private readonly favouritesService: FavouritesService) {}
+
+  @Get('my-post-ids')
+  @Auth(ValidRoles.user, ValidRoles.admin)
+  getMyPostIds(@GetUser() user: User): Promise<string[]> {
+    return this.favouritesService.getMyPostIds(user);
+  }
 
   @Post('post/:postId')
   @Auth(ValidRoles.user, ValidRoles.admin)

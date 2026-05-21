@@ -140,6 +140,55 @@ export class TypesenseService implements OnModuleInit {
     }
   }
 
+  async bulkIndexPosts(posts: { id: string; title?: string; description?: string; createdAt: Date; user?: { username: string } }[]) {
+    if (!posts.length) return;
+    const documents = posts.map((p) => ({
+      id: p.id,
+      title: p.title ?? '',
+      description: p.description ?? '',
+      username: p.user?.username ?? '',
+      createdAt: Math.floor(p.createdAt.getTime() / 1000),
+    }));
+    try {
+      await this.client.collections(POSTS_COLLECTION).documents().import(documents, { action: 'upsert' });
+      this.logger.log(`Bulk indexed ${documents.length} posts`);
+    } catch (err) {
+      this.logger.warn(`Bulk index posts failed: ${err.message}`);
+    }
+  }
+
+  async bulkIndexLessons(lessons: { id: string; name: string; description: string; createdAt: Date }[]) {
+    if (!lessons.length) return;
+    const documents = lessons.map((l) => ({
+      id: l.id,
+      name: l.name,
+      description: l.description,
+      createdAt: Math.floor(l.createdAt.getTime() / 1000),
+    }));
+    try {
+      await this.client.collections(LESSONS_COLLECTION).documents().import(documents, { action: 'upsert' });
+      this.logger.log(`Bulk indexed ${documents.length} lessons`);
+    } catch (err) {
+      this.logger.warn(`Bulk index lessons failed: ${err.message}`);
+    }
+  }
+
+  async bulkIndexUsers(users: { id: string; username: string; fullName: string; image?: string | null }[]) {
+    if (!users.length) return;
+    const documents = users.map((u) => ({
+      id: u.id,
+      username: u.username,
+      fullName: u.fullName,
+      image: u.image ?? '',
+    }));
+    try {
+      await this.client.collections(USERS_COLLECTION).documents().import(documents, { action: 'upsert' });
+      this.logger.log(`Bulk indexed ${documents.length} users`);
+    } catch (err) {
+      this.logger.warn(`Bulk index users failed: ${err.message}`);
+    }
+  }
+
   async search(query: string, type: 'posts' | 'lessons' | 'users') {
     const collectionMap = {
       posts: { collection: POSTS_COLLECTION, queryBy: 'title,description,username' },

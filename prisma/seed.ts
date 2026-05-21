@@ -2,9 +2,16 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcrypt';
+import * as Typesense from 'typesense';
 
 const adapter = new PrismaPg(process.env.DATABASE_URL!);
 const prisma = new PrismaClient({ adapter });
+
+const typesense = new Typesense.Client({
+  nodes: [{ host: process.env.TYPESENSE_HOST || 'localhost', port: parseInt(process.env.TYPESENSE_PORT || '8108'), protocol: process.env.TYPESENSE_PROTOCOL || 'http' }],
+  apiKey: process.env.TYPESENSE_API_KEY || 'we-study-api-key',
+  connectionTimeoutSeconds: 5,
+});
 
 async function main() {
   console.log('🌱  Seeding database...');
@@ -348,6 +355,42 @@ async function main() {
     ],
   });
   console.log('  ✓ Created 7 calendar events');
+
+  // ── Typesense indexing ────────────────────────────────────────────────────
+  try {
+    const postsWithUser = await prisma.post.findMany({ include: { user: { select: { username: true } } } });
+    await typesense.collections('posts').documents().import(
+      postsWithUser.map((p) => ({
+        id: p.id,
+        title: p.title ?? '',
+        description: p.description ?? '',
+        username: p.user?.username ?? '',
+        createdAt: Math.floor(p.createdAt.getTime() / 1000),
+      })),
+      { action: 'upsert' },
+    );
+    await typesense.collections('lessons').documents().import(
+      lessons.map((l) => ({
+        id: l.id,
+        name: l.name,
+        description: l.description,
+        createdAt: Math.floor(l.createdAt.getTime() / 1000),
+      })),
+      { action: 'upsert' },
+    );
+    await typesense.collections('users').documents().import(
+      users.map((u) => ({
+        id: u.id,
+        username: u.username,
+        fullName: u.fullName,
+        image: u.image ?? '',
+      })),
+      { action: 'upsert' },
+    );
+    console.log('  ✓ Indexed data in Typesense');
+  } catch (err) {
+    console.warn('  ⚠ Typesense indexing failed (service may be unavailable):', err.message);
+  }
 
   console.log('\n✅  Seed complete!');
   console.log('\n  Test credentials (all use password: Password1)');

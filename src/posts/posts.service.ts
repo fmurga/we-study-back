@@ -68,6 +68,18 @@ export class PostsService {
     });
   }
 
+  async findByUser(userId: string, paginationDto: PaginationDto) {
+    const { limit = 10, offset = 0 } = paginationDto;
+
+    return this.prisma.post.findMany({
+      where: { userId },
+      take: limit,
+      skip: offset,
+      include: { tags: true, user: { select: userPublicSelect }, _count: { select: { comments: true, favourites: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async findByLesson(lessonId: string, paginationDto: PaginationDto) {
     const { limit = 10, offset = 0 } = paginationDto;
 

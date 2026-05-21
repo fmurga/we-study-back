@@ -133,7 +133,8 @@ export class AuthService {
   }
 
   async findOnePlain(term: string) {
-    return this.findOne(term);
+    const { password, googleId, ...safe } = await this.findOne(term);
+    return safe;
   }
 
   async validateGoogleUser(profile: any): Promise<any> {
