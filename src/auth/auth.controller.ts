@@ -115,13 +115,8 @@ export class AuthController {
     if (!req.user?.token) {
       return res.redirect(`${frontendUrl}/login?error=google_failed`);
     }
-    res.cookie('we_study_session', req.user.token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 1000 * 60 * 60 * 24 * 7,
-      path: '/',
-    });
-    res.redirect(`${frontendUrl}/feed`);
+    // Pass token to the frontend BFF which will set the httpOnly cookie on the
+    // correct domain. This avoids cross-domain cookie issues in production.
+    res.redirect(`${frontendUrl}/api/auth/google/callback?token=${req.user.token}`);
   }
 }
