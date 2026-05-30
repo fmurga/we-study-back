@@ -60,6 +60,7 @@ model User {
   password String?
   fullName String
   username String   @unique
+  bio      String?
   isActive Boolean  @default(true)
   image    String?  @default("https://res.cloudinary.com/dr56kvlbz/image/upload/v1731686000/c0xmffb9ostdp8ahkdiy.jpg")
   roles    String[] @default(["user"])
@@ -75,6 +76,7 @@ model User {
   reportedContent Report[]     @relation("ReportedUser")
   resolvedReports Report[]     @relation("ResolvedBy")
   favourites      Favourite[]
+  messages        Message[]
 
   @@map("users")
 }
@@ -139,8 +141,22 @@ model Lesson {
   notes      Note[]
   tags       Tag[]       @relation("LessonTags")
   favourites Favourite[] @relation("LessonFavourites")
+  messages   Message[]
 
   @@map("lessons")
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+  lessonId String
+  lesson   Lesson @relation(fields: [lessonId], references: [id])
+
+  @@map("messages")
 }
 
 model Tag {

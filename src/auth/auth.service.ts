@@ -11,6 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TypesenseService } from '../typesense/typesense.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { JwtPayload } from './interfaces';
 import { CreateUserDto, LoginUserDto } from './dto';
 import { isUUID } from 'class-validator';
@@ -21,11 +22,11 @@ export class UserDto {
   email?: string;
   fullName?: string;
   username?: string;
+  bio?: string;
   isActive?: boolean;
   image?: string;
   roles?: string[];
   posts?: { id: string }[];
-  password?: string;
 }
 
 @Injectable()
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly typesense: TypesenseService,
+    private readonly cloudinary: CloudinaryService,
   ) {}
 
   async create(createUserDto: CreateUserDto) {
@@ -82,7 +84,7 @@ export class AuthService {
     id: string,
     updateUserDto: UpdateUserDto,
     decodedToken: any,
-    file?: any,
+    file?: Express.Multer.File,
   ): Promise<UserDto> {
     const user = await this.findOne(id);
 
@@ -90,20 +92,27 @@ export class AuthService {
       throw new UnauthorizedException('You are not authorized to update this user');
     }
 
+    const { fullName, username, bio, image } = updateUserDto;
+    const data: Record<string, string | undefined> = {};
+    if (fullName !== undefined) data.fullName = fullName;
+    if (username !== undefined) data.username = username;
+    if (bio !== undefined) data.bio = bio;
+
     if (file) {
-      updateUserDto.image = file.secure_url;
-    } else {
-      updateUserDto.image = decodedToken.image;
+      const uploaded = await this.cloudinary.uploadImage(file);
+      if ('secure_url' in uploaded) data.image = uploaded.secure_url;
+    } else if (image !== undefined) {
+      data.image = image;
     }
 
     const updated = await this.prisma.user.update({
       where: { id },
-      data: updateUserDto,
+      data,
     });
 
     await this.typesense.indexUser(updated);
 
-    return this.findOne(id);
+    return this.findOnePlain(id);
   }
 
   async findAllUsernames(): Promise<string[]> {

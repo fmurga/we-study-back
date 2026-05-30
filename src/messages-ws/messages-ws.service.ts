@@ -10,6 +10,13 @@ interface ConnectedClients {
   };
 }
 
+const userPublicSelect = {
+  id: true,
+  fullName: true,
+  username: true,
+  image: true,
+} as const;
+
 @Injectable()
 export class MessagesWsService {
   private connectedClients: ConnectedClients = {};
@@ -22,7 +29,6 @@ export class MessagesWsService {
     if (!user.isActive) throw new Error('User not active');
 
     this.checkUserConnection(user);
-
     this.connectedClients[client.id] = { socket: client, user };
   }
 
@@ -34,8 +40,29 @@ export class MessagesWsService {
     return Object.keys(this.connectedClients);
   }
 
+  getClientData(socketId: string) {
+    return this.connectedClients[socketId];
+  }
+
   getUserFullName(socketId: string) {
     return this.connectedClients[socketId].user.fullName;
+  }
+
+  async saveMessage(content: string, userId: string, lessonId: string) {
+    return this.prisma.message.create({
+      data: { content, userId, lessonId },
+      include: { user: { select: userPublicSelect } },
+    });
+  }
+
+  async getByLesson(lessonId: string, limit = 50, cursor?: string) {
+    return this.prisma.message.findMany({
+      where: { lessonId },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: { user: { select: userPublicSelect } },
+    });
   }
 
   private checkUserConnection(user: User) {

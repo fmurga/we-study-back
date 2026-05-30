@@ -47,10 +47,21 @@ export class UserFollowsService {
     await this.prisma.userFollow.delete({ where: { id: userFollow.id } });
   }
 
+  private readonly userPublicSelect = {
+    id: true,
+    username: true,
+    fullName: true,
+    image: true,
+    bio: true,
+    isActive: true,
+    roles: true,
+    email: true,
+  } as const;
+
   async getFollowers(userId: string) {
     const follows = await this.prisma.userFollow.findMany({
       where: { followingId: userId },
-      include: { follower: true },
+      include: { follower: { select: this.userPublicSelect } },
     });
     return follows.map((f) => f.follower);
   }
@@ -58,7 +69,7 @@ export class UserFollowsService {
   async getFollowing(userId: string) {
     const follows = await this.prisma.userFollow.findMany({
       where: { followerId: userId },
-      include: { following: true },
+      include: { following: { select: this.userPublicSelect } },
     });
     return follows.map((f) => f.following);
   }

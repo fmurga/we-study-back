@@ -16,6 +16,24 @@ export class FavouritesController {
     return this.favouritesService.getMyPostIds(user);
   }
 
+  @Get('my-lesson-ids')
+  @Auth(ValidRoles.user, ValidRoles.admin)
+  getMyLessonIds(@GetUser() user: User): Promise<string[]> {
+    return this.favouritesService.getMyLessonIds(user);
+  }
+
+  @Get('my-posts')
+  @Auth(ValidRoles.user, ValidRoles.admin)
+  getMyFavouritePosts(@GetUser() user: User) {
+    return this.favouritesService.getMyFavouritePosts(user);
+  }
+
+  @Get('my-lessons')
+  @Auth(ValidRoles.user, ValidRoles.admin)
+  getMyFavouriteLessons(@GetUser() user: User) {
+    return this.favouritesService.getMyFavouriteLessons(user);
+  }
+
   @Post('post/:postId')
   @Auth(ValidRoles.user, ValidRoles.admin)
   togglePost(
@@ -23,5 +41,14 @@ export class FavouritesController {
     @GetUser() user: User,
   ) {
     return this.favouritesService.togglePost(postId, user);
+  }
+
+  @Post('lesson/:lessonId')
+  @Auth(ValidRoles.user, ValidRoles.admin)
+  toggleLesson(
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @GetUser() user: User,
+  ) {
+    return this.favouritesService.toggleLesson(lessonId, user);
   }
 }

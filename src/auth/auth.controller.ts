@@ -5,12 +5,16 @@ import {
   Body,
   UseGuards,
   Req,
+  Res,
   Headers,
   Param,
   Patch,
   Put,
-  Redirect,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { IncomingHttpHeaders } from 'http';
 
@@ -41,14 +45,16 @@ export class AuthController {
   }
 
   @Patch('update-user/:id')
+  @UseInterceptors(FileInterceptor('file'))
   async updateUser(
     @Param('id') id: string,
     @Body() updateUserDto: UpdateUserDto,
-    @Headers('Authorization') authHeader: string
+    @Headers('Authorization') authHeader: string,
+    @UploadedFile() file?: Express.Multer.File,
   ): Promise<UserDto> {
     const token = authHeader.split(' ')[1];
     const decodedToken = await this.authService.verifyTokenExpiration(token);
-    return this.authService.updateUser(id, updateUserDto, decodedToken);
+    return this.authService.updateUser(id, updateUserDto, decodedToken, file);
   }
 
   @Get('renew-token')
@@ -104,9 +110,18 @@ export class AuthController {
 
   @Get('google/redirect')
   @UseGuards(AuthGuard('google'))
-  @Redirect('http://localhost:3000') // Redirect to your frontend after login
-  async googleAuthRedirect(@Req() req) {
-    // Handles the Google OAuth2 callback
-    return this.authService.googleLogin(req);
+  async googleAuthRedirect(@Req() req, @Res() res: Response) {
+    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+    if (!req.user?.token) {
+      return res.redirect(`${frontendUrl}/login?error=google_failed`);
+    }
+    res.cookie('we_study_session', req.user.token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+      path: '/',
+    });
+    res.redirect(`${frontendUrl}/feed`);
   }
 }

@@ -11,7 +11,15 @@ import { JwtPayload } from '../auth/interfaces';
 import { NewMessageDto } from './dtos/new-message.dto';
 import { MessagesWsService } from './messages-ws.service';
 
-@WebSocketGateway({ cors: true })
+@WebSocketGateway({
+  cors: {
+    origin: [
+      'http://localhost:3000',
+      process.env.FRONTEND_URL ?? 'http://localhost:3000',
+    ],
+    credentials: true,
+  },
+})
 export class MessagesWsGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
@@ -23,53 +31,67 @@ export class MessagesWsGateway
   ) {}
 
   async handleConnection(client: Socket) {
-    const token = client.handshake.headers.authentication as string;
-    let payload: JwtPayload;
+    // Support both cookie-based auth (browser) and header-based auth (testing/mobile)
+    const token =
+      this.extractTokenFromCookie(client.handshake.headers.cookie) ??
+      (client.handshake.headers.authentication as string | undefined);
 
-    try {
-      payload = this.jwtService.verify(token);
-      await this.messagesWsService.registerClient(client, payload.id);
-    } catch (error) {
+    if (!token) {
       client.disconnect();
       return;
     }
 
-    // console.log({ payload })
-    // console.log('Cliente conectado:', client.id );
+    let payload: JwtPayload;
+    try {
+      payload = this.jwtService.verify(token);
+      await this.messagesWsService.registerClient(client, payload.id);
+    } catch {
+      client.disconnect();
+      return;
+    }
 
-    this.wss.emit(
-      'clients-updated',
-      this.messagesWsService.getConnectedClients(),
-    );
+    this.wss.emit('clients-updated', this.messagesWsService.getConnectedClients());
   }
 
   handleDisconnect(client: Socket) {
-    // console.log('Cliente desconectado', client.id )
     this.messagesWsService.removeClient(client.id);
+    this.wss.emit('clients-updated', this.messagesWsService.getConnectedClients());
+  }
 
-    this.wss.emit(
-      'clients-updated',
-      this.messagesWsService.getConnectedClients(),
-    );
+  /** Client joins a lesson chat room. Must be called before sending messages. */
+  @SubscribeMessage('join-lesson')
+  onJoinLesson(client: Socket, lessonId: string) {
+    client.join(lessonId);
   }
 
   @SubscribeMessage('message-from-client')
-  onMessageFromClient(client: Socket, payload: NewMessageDto) {
-    //! Emite únicamente al cliente.
-    // client.emit('message-from-server', {
-    //   fullName: 'Soy Yo!',
-    //   message: payload.message || 'no-message!!'
-    // });
+  async onMessageFromClient(client: Socket, payload: NewMessageDto) {
+    const clientData = this.messagesWsService.getClientData(client.id);
+    if (!clientData) return;
 
-    //! Emitir a todos MENOS, al cliente inicial
-    // client.broadcast.emit('message-from-server', {
-    //   fullName: 'Soy Yo!',
-    //   message: payload.message || 'no-message!!'
-    // });
+    const message = await this.messagesWsService.saveMessage(
+      payload.message,
+      clientData.user.id,
+      payload.lessonId,
+    );
 
-    this.wss.emit('message-from-server', {
-      fullName: this.messagesWsService.getUserFullName(client.id),
-      message: payload.message || 'no-message!!',
+    this.wss.to(payload.lessonId).emit('message-from-server', {
+      id: message.id,
+      content: message.content,
+      createdAt: message.createdAt,
+      lessonId: message.lessonId,
+      user: {
+        id: clientData.user.id,
+        fullName: clientData.user.fullName,
+        username: clientData.user.username,
+        image: clientData.user.image,
+      },
     });
+  }
+
+  private extractTokenFromCookie(cookieHeader?: string): string | undefined {
+    if (!cookieHeader) return undefined;
+    const match = cookieHeader.match(/we_study_session=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : undefined;
   }
 }

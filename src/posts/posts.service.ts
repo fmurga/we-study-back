@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { User } from '@prisma/client';
+import { ReportStatus, User } from '@prisma/client';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,6 +22,11 @@ const userPublicSelect = {
   isActive: true,
 } as const;
 
+// Posts under review should not appear in any feed
+const notUnderReview = {
+  reports: { none: { status: { in: [ReportStatus.PENDING, ReportStatus.UNDER_REVIEW] } } },
+};
+
 @Injectable()
 export class PostsService {
   private readonly logger = new Logger('PostsService');
@@ -35,24 +40,36 @@ export class PostsService {
     try {
       const { lessonId, tags, ...postData } = createPostDto as any;
 
+      // Normalise tags: multipart sends them as string or string[]
+      const tagIds: string[] = tags
+        ? (Array.isArray(tags) ? tags : [tags]).filter(Boolean)
+        : [];
+
       const data: any = {
         ...postData,
         userId: user.id,
+        slug: crypto.randomUUID(), // temporary; overwritten below with post.id
       };
 
       if (image) data.image = image.secure_url;
       if (lessonId) data.lessonId = lessonId;
+      if (tagIds.length) data.tags = { connect: tagIds.map((id) => ({ id })) };
 
-      const post = await this.prisma.post.create({ data, include: { user: { select: userPublicSelect } } });
-
-      await this.prisma.post.update({
-        where: { id: post.id },
-        data: { slug: post.id },
+      const post = await this.prisma.post.create({
+        data,
+        include: { user: { select: userPublicSelect }, tags: true, _count: { select: { comments: true, favourites: true } } },
       });
 
-      await this.typesense.indexPost(post);
+      // Use the post's own ID as the canonical slug
+      const final = await this.prisma.post.update({
+        where: { id: post.id },
+        data: { slug: post.id },
+        include: { user: { select: userPublicSelect }, tags: true, _count: { select: { comments: true, favourites: true } } },
+      });
 
-      return { ...post, slug: post.id };
+      await this.typesense.indexPost({ ...final, user: post.user });
+
+      return final;
     } catch (error) {
       this.handleDBExceptions(error);
     }
@@ -62,6 +79,7 @@ export class PostsService {
     const { limit = 10, offset = 0 } = paginationDto;
 
     return this.prisma.post.findMany({
+      where: notUnderReview,
       take: limit,
       skip: offset,
       include: { tags: true, user: { select: userPublicSelect }, _count: { select: { comments: true, favourites: true } } },
@@ -72,7 +90,7 @@ export class PostsService {
     const { limit = 10, offset = 0 } = paginationDto;
 
     return this.prisma.post.findMany({
-      where: { userId },
+      where: { userId, ...notUnderReview },
       take: limit,
       skip: offset,
       include: { tags: true, user: { select: userPublicSelect }, _count: { select: { comments: true, favourites: true } } },
@@ -84,7 +102,7 @@ export class PostsService {
     const { limit = 10, offset = 0 } = paginationDto;
 
     return this.prisma.post.findMany({
-      where: { lessonId },
+      where: { lessonId, ...notUnderReview },
       take: limit,
       skip: offset,
       include: { tags: true, user: { select: userPublicSelect }, _count: { select: { comments: true, favourites: true } } },
